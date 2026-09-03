@@ -1,0 +1,83 @@
+{
+  "version": 2,
+  "layouts": {
+    "grid 2x2": {
+      "tree": {
+        "side": "top",
+        "ratio": 0.5,
+        "first": {
+          "side": "left",
+          "ratio": 0.5,
+          "first": {},
+          "rest": {}
+        },
+        "rest": {
+          "side": "left",
+          "ratio": 0.5,
+          "first": {},
+          "rest": {}
+        }
+      },
+      "builtin": true
+    },
+    "2 stack": {
+      "tree": {
+        "side": "left",
+        "ratio": 0.6,
+        "first": {},
+        "rest": {
+          "side": "top",
+          "ratio": 0.3333333333333333,
+          "first": {},
+          "rest": {
+            "side": "top",
+            "ratio": 0.5,
+            "first": {},
+            "rest": {}
+          }
+        }
+      },
+      "builtin": true
+    },
+    "parquet": {
+      "tree": {
+        "side": "left",
+        "ratio": 0.5,
+        "first": {
+          "side": "left",
+          "ratio": 0.5,
+          "first": {
+            "side": "top",
+            "ratio": 0.25,
+            "first": {},
+            "rest": {}
+          },
+          "rest": {
+            "side": "top",
+            "ratio": 0.3333333333333333,
+            "first": {},
+            "rest": {}
+          }
+        },
+        "rest": {
+          "side": "left",
+          "ratio": 0.5,
+          "first": {
+            "side": "top",
+            "ratio": 0.4,
+            "first": {},
+            "rest": {}
+          },
+          "rest": {}
+        }
+      },
+      "builtin": true
+    }
+  },
+  "order": [
+    "grid 2x2",
+    "2 stack",
+    "parquet"
+  ],
+  "workspaces": {}
+}

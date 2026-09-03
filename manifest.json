@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.andreireanu.parquet",
+  "name": "Parquet",
+  "version": "0.1.0",
+  "author": "andrei",
+  "license": "MIT",
+  "description": "Draw your own tile layout and give one to each workspace. Windows land in the tiles you drew and keep that size; once the tiles are full, the last one carries on like a normal Hyprland layout. Toggle it per workspace from the bar.",
+  "kinds": ["bar-widget", "overlay"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "overlay": "Editor.qml"
+  },
+  "barWidget": {
+    "displayName": "Parquet",
+    "description": "Per-workspace tiling toggle with a click-to-split tile editor",
+    "category": "Compositor",
+    "aliases": ["parquet", "tiling", "zones", "tile-editor"],
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

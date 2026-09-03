@@ -1,0 +1,25 @@
+# Nothing in this repo is generated at build time: layout/default-state.json and
+# everything under assets/ are committed on purpose (scripts/gen-icon.sh writes
+# them deliberately, and the test suites use mktemp outside the tree). So this
+# list is only about things that wander in.
+
+# --- install.sh artefacts -------------------------------------------------
+# These normally land in ~/.config/hypr, not here. They show up in the tree only
+# if someone runs the installer with XDG_CONFIG_HOME pointed at the repo, which
+# is exactly the mistake worth not committing.
+*.parquet-bak.*
+*.tmp.[0-9]*
+
+# --- editor / OS ----------------------------------------------------------
+.zed/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# --- ad-hoc junk ----------------------------------------------------------
+*.log
+*.orig
+*.rej
