@@ -289,6 +289,46 @@ ok(decoded and type(decoded.first) == "table" and next(decoded.first) == nil, "d
 ok(decoded and decoded.rest and decoded.rest.side == "left", "decoder: nested split")
 ok(select(1, P.json_decode('{bad')) == nil, "decoder: malformed input returns nil")
 
+----------------------------------------------------------------------
+-- Removing the plugin must not leave workspaces tiled by it
+----------------------------------------------------------------------
+-- `omarchy plugin remove` deletes only the QML folder. This file and the managed
+-- hyprland.lua block stay behind and keep running, so apply_rules has to notice
+-- and hand every workspace BACK to its native layout. Skipping the bind is not
+-- enough: lua:parquet is still registered here, so a rule set before the removal
+-- would go on resolving and the user would keep being tiled by a plugin they
+-- deleted, with no bar chip left to turn it off.
+print("\n8. plugin removed -> workspaces handed back to their native layout")
+do
+    local bound = {}
+    hl.workspace_rule = function(t) bound[tostring(t.workspace)] = t.layout end
+    hl.get_config = function(_) return "master" end
+
+    write_state(state_json({ ["4"] = { enabled = true, layout = "two" } }))
+    P.state.last_raw = nil
+    P.load_state()
+
+    -- a folder holding a manifest.json = the plugin is installed
+    local present = os.tmpname()
+    os.remove(present); os.execute("mkdir -p '" .. present .. "'")
+    local mf = assert(io.open(present .. "/manifest.json", "w"))
+    mf:write("{}"); mf:close()
+
+    P.state.plugin_dir = present
+    bound = {}; P.apply_rules()
+    ok(bound["4"] == "lua:parquet",
+       "plugin installed -> ws4 claimed (got " .. tostring(bound["4"]) .. ")")
+
+    P.state.plugin_dir = present .. "-gone"
+    bound = {}; P.apply_rules()
+    ok(bound["4"] == "master",
+       "plugin removed -> ws4 handed back to general:layout (got " .. tostring(bound["4"]) .. ")")
+    ok(bound["4"] ~= "lua:parquet",
+       "plugin removed -> ws4 is never left on lua:parquet")
+
+    os.remove(present .. "/manifest.json"); os.execute("rmdir '" .. present .. "'")
+end
+
 os.remove(STATE_PATH)
 
 ----------------------------------------------------------------------

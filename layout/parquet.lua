@@ -73,6 +73,10 @@ local M = {
     -- Path is overridable for tests and power users.
     state_path = os.getenv("PARQUET_STATE")
         or (HOME .. "/.local/state/omarchy/parquet/state.json"),
+    -- The shell plugin's folder. Its absence means the user ran
+    -- `omarchy plugin remove`; see apply_rules. Overridable like state_path.
+    plugin_dir = os.getenv("PARQUET_PLUGIN_DIR")
+        or (HOME .. "/.config/omarchy/plugins/io.github.andreireanu.parquet"),
     -- [layout name] = <sanitized tree>       (the library, seeded from state.json)
     layouts = {},
     -- [tostring(workspace id)] = { layout = <name>|nil, fill = <string>|nil,
@@ -81,6 +85,18 @@ local M = {
     -- Fallback fill for a workspace with no entry at all.
     default = { fill = "dwindle" },
 }
+
+-- Is the shell plugin still installed? `omarchy plugin remove` deletes only the
+-- QML folder, leaving this file and the managed hyprland.lua block behind.
+-- Without this check those leftovers keep binding workspaces to lua:parquet
+-- forever: the user removed Parquet, the bar chip is gone, and their windows are
+-- still being tiled by it with no UI left to turn it off. Binding nothing makes
+-- the leftovers inert, so every workspace falls back to its native layout.
+local function plugin_installed()
+    local f = io.open(M.plugin_dir .. "/manifest.json", "r")
+    if f then f:close(); return true end
+    return false
+end
 
 ----------------------------------------------------------------------
 -- Minimal JSON decoder. Enough for state.json (nested objects, strings,
@@ -309,9 +325,21 @@ end
 -- back to the previous layout); this only ever adds.
 local function apply_rules()
     if not (hl and type(hl.workspace_rule) == "function") then return end
+
+    -- When the shell plugin is gone, hand every workspace BACK to its native
+    -- layout instead of claiming it. Skipping the bind is not enough: this file
+    -- still registers lua:parquet, so a rule set before the removal would go on
+    -- resolving and the user would keep getting tiled by a plugin they deleted,
+    -- with no bar chip left to turn it off.
+    local installed = plugin_installed()
+    local native = (hl.get_config and hl.get_config("general:layout")) or "dwindle"
+
     for id, ws in pairs(M.workspaces) do
         if ws.enabled then
-            pcall(hl.workspace_rule, { workspace = id, layout = "lua:parquet" })
+            pcall(hl.workspace_rule, {
+                workspace = id,
+                layout = installed and "lua:parquet" or native,
+            })
         end
     end
 end
@@ -496,6 +524,7 @@ _G.parquet = {
     load_state = load_state,
     refresh_state = refresh_state,
     apply_rules = apply_rules,
+    plugin_installed = plugin_installed,
     json_decode = json_decode,
     state = M,
     presets = PRESETS,

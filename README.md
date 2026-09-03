@@ -68,9 +68,14 @@ From a local checkout instead:
 
 ```bash
 scripts/install.sh
+omarchy-shell shell rescanPlugins    # the script copies files in behind the
+                                     # shell's back, so tell it to look again
 omarchy plugin enable io.github.andreireanu.parquet
 omarchy-restart-shell
 ```
+
+Without the rescan, `omarchy plugin enable` reports *"plugin is not known"*. The
+`omarchy plugin add` route above does this for you.
 
 Running `scripts/install.sh` from inside the installed plugin folder is safe: it
 detects that its source and its destination are the same directory and skips the
@@ -88,10 +93,28 @@ the three newest backups of each managed file are kept.
 > loop; syncing the file alone will have you staring at the previous build.
 > Editing `layout/parquet.lua` needs `hyprctl reload` instead.
 
-`scripts/install.sh --uninstall` removes the layout, the managed block and the
-plugin folder, and cleans up its own backups. It deliberately **keeps**
-`~/.local/state/omarchy/parquet/` - that is where your drawn layouts live.
-Delete it by hand if you want them gone too.
+## Uninstalling
+
+Order matters. `omarchy plugin remove` only deletes the QML folder, so on its
+own it leaves the Lua layout and the managed `hyprland.lua` block behind. Run the
+script first:
+
+```bash
+~/.config/omarchy/plugins/io.github.andreireanu.parquet/scripts/install.sh --uninstall
+omarchy plugin remove io.github.andreireanu.parquet
+```
+
+The script strips the managed block, removes `~/.config/hypr/parquet.lua` and
+every backup it ever made, and puts each workspace back on its native layout. Run
+from inside the installed plugin folder it will not delete itself - it says so
+and leaves that to `omarchy plugin remove`.
+
+It deliberately **keeps** `~/.local/state/omarchy/parquet/` - that is where your
+drawn layouts live, so reinstalling picks them back up. Delete it by hand if you
+want them gone too.
+
+From a local checkout, `scripts/install.sh --uninstall` does the same thing and
+removes the plugin folder as well.
 
 ## Using it
 
