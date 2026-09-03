@@ -68,13 +68,11 @@ check "grep -qF 'require(\"parquet\")' '$H/$CFG/hyprland.lua'" "hyprland.lua req
 # `require` is cached, so this second line is what re-binds the enabled
 # workspaces after `hyprctl reload` re-runs hyprland.lua.
 check "grep -qF '_G.parquet.apply_rules()' '$H/$CFG/hyprland.lua'" "managed block re-applies rules on reload"
-# `require` returns the cached module on a reload that keeps the Lua state, so
-# the body — and with it hl.layout.register — would never run again and
-# lua:parquet would stop existing. The cache-buster is what makes the rebind real.
-check "grep -qF 'package.loaded.parquet = nil' '$H/$CFG/hyprland.lua'" \
-      "managed block clears the require cache so lua:parquet re-registers"
-check "[[ \$(grep -n 'package.loaded.parquet = nil' '$H/$CFG/hyprland.lua' | cut -d: -f1) -lt \$(grep -n 'require(\"parquet\")' '$H/$CFG/hyprland.lua' | cut -d: -f1) ]]" \
-      "…and it comes before the require"
+# The block must NOT force a fresh module load: re-running the body calls
+# hl.layout.register on a name that is still registered, which Hyprland reports
+# as a config error on every reload.
+check "! grep -qF 'package.loaded.parquet' '$H/$CFG/hyprland.lua'" \
+      "managed block does not bust the require cache (would double-register)"
 check "[[ \$(mark_count '$H/$CFG/hyprland.lua') -eq 1 ]]"     "exactly one managed block"
 for f in manifest.json Parquet.js BarWidget.qml Panel.qml Editor.qml Service.qml LayoutCard.qml ZoneMark.qml; do
   check "[[ -f '$H/$PLUG/$f' ]]" "plugin file $f copied"
@@ -248,7 +246,7 @@ run_ensure "$H"
 
 check "[[ -f '$H/$CFG/parquet.lua' ]]"                  "--ensure installs the Lua layout"
 check "[[ \$(mark_count '$H/$CFG/hyprland.lua') -eq 1 ]]" "--ensure adds exactly one managed block"
-check "grep -qF 'package.loaded.parquet = nil' '$H/$CFG/hyprland.lua'" "--ensure block busts the require cache"
+check "! grep -qF 'package.loaded.parquet' '$H/$CFG/hyprland.lua'" "--ensure block does not bust the require cache"
 check "[[ -f '$H/$ST' ]]"                               "--ensure seeds state.json"
 check "[[ -f '$H/$PLUG/manifest.json' ]]"               "--ensure does not eat the cloned plugin"
 

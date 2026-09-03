@@ -429,7 +429,13 @@ end
 -- Registration
 ----------------------------------------------------------------------
 
-hl.layout.register("parquet", {
+-- Wrapped: Hyprland raises "layout 'lua:parquet' is already registered" if this
+-- name is taken, and an error thrown at config-load time surfaces to the user as
+-- a config error banner. A second registration only happens when this module
+-- body runs twice against one Lua state, in which case the FIRST registration is
+-- still live and still correct — recalculate() re-reads state.json itself, so
+-- nothing is stale. Swallow it rather than shout at the user.
+local ok_register, register_err = pcall(hl.layout.register, "parquet", {
     recalculate = function(ctx)
         local n = #ctx.targets
         if n == 0 then
@@ -475,6 +481,9 @@ hl.layout.register("parquet", {
         return true
     end,
 })
+if not ok_register and not tostring(register_err):match("already registered") then
+    io.stderr:write("[parquet] " .. tostring(register_err) .. "\n")
+end
 
 -- Load once at startup and bind enabled workspaces. Wrapped so a broken state
 -- file never stops the layout from registering.

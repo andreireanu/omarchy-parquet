@@ -136,17 +136,17 @@ strip_block() {
 # then looks completely dead until the next reload. Build the whole file first,
 # swap it in once.
 #
-# `package.loaded.parquet = nil` is the second half of the same problem: on a
-# reload that keeps the Lua state, a plain `require` returns the cached module
-# and the body — including hl.layout.register — never runs again. Clearing the
-# cache entry forces a real re-registration. Re-registering is safe; it just
-# replaces the previous definition.
+# A reload that KEEPS the Lua state returns the cached module from `require`, so
+# the body does not re-run — but that is fine: the layout is still registered
+# from the first load, and the second line below re-reads state.json and rebinds
+# the workspace rules. Forcing a fresh load here (package.loaded.parquet = nil)
+# is what you must NOT do: it re-runs hl.layout.register on a name that is still
+# registered, and Hyprland reports that as a config error on every reload.
 write_block() {
   local tmp="$HYPRLAND_LUA.tmp.$STAMP"
   {
     strip_block_to_stdout
     printf '\n%s\n' "$BEGIN_MARK"
-    printf 'package.loaded.parquet = nil\n'
     printf 'require("parquet")\n'
     printf 'pcall(function() _G.parquet.load_state(); _G.parquet.apply_rules() end)\n'
     printf '%s\n' "$END_MARK"
@@ -291,7 +291,7 @@ ensure_parquet() {
      && cmp -s "$REPO_DIR/layout/parquet.lua" "$LAYOUT_DEST" \
      && [[ -f $HYPRLAND_LUA ]] \
      && grep -qF -- "$BEGIN_MARK" "$HYPRLAND_LUA" \
-     && grep -qF 'package.loaded.parquet = nil' "$HYPRLAND_LUA"; then
+     && grep -qF 'require("parquet")' "$HYPRLAND_LUA"; then
     return 0
   fi
 
