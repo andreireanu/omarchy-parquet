@@ -64,7 +64,11 @@ run_install "$H"
 
 check "[[ -f '$H/$CFG/parquet.lua' ]]"                 "parquet.lua installed to ~/.config/hypr"
 check "[[ -f '$H/$CFG/hyprland.lua' ]]"                "hyprland.lua created"
-check "grep -qF 'require(\"parquet\")' '$H/$CFG/hyprland.lua'" "hyprland.lua requires parquet"
+check "grep -qF 'require, \"parquet\"' '$H/$CFG/hyprland.lua'" "hyprland.lua requires parquet"
+# The block sits in the user's compositor config, so a missing parquet.lua must
+# not throw a config error across their whole desktop.
+check "grep -qF 'pcall(require, \"parquet\")' '$H/$CFG/hyprland.lua'" \
+      "the require is pcall'd so a missing parquet.lua cannot break the config"
 # `require` is cached, so this second line is what re-binds the enabled
 # workspaces after `hyprctl reload` re-runs hyprland.lua.
 check "grep -qF '_G.parquet.apply_rules()' '$H/$CFG/hyprland.lua'" "managed block re-applies rules on reload"
@@ -104,7 +108,7 @@ run_install "$H"
 run_install "$H"
 
 check "[[ \$(mark_count '$H/$CFG/hyprland.lua') -eq 1 ]]"          "still exactly one block after 3 installs"
-check "[[ \$(grep -cF 'require(\"parquet\")' '$H/$CFG/hyprland.lua') -eq 1 ]]" "still exactly one require line"
+check "[[ \$(grep -cF 'pcall(require, \"parquet\")' '$H/$CFG/hyprland.lua') -eq 1 ]]" "still exactly one require line"
 check "grep -qxF 'monitor = eDP-1, preferred, auto, 1' '$H/$CFG/hyprland.lua'"  "user monitor line intact"
 check "grep -qxF 'bind = SUPER, Q, killactive' '$H/$CFG/hyprland.lua'"          "user bind line intact"
 

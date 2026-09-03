@@ -142,12 +142,19 @@ strip_block() {
 # the workspace rules. Forcing a fresh load here (package.loaded.parquet = nil)
 # is what you must NOT do: it re-runs hl.layout.register on a name that is still
 # registered, and Hyprland reports that as a config error on every reload.
+#
+# The require is pcall'd because this block lives in the USER'S compositor
+# config. If parquet.lua goes missing — a half-finished uninstall, a hand-deleted
+# file, `omarchy plugin remove` without the script — a bare require throws at
+# config load and Hyprland shows a config-error banner over the whole desktop.
+# Failing quietly is right: the bar widget's `--ensure` puts the file back on the
+# next shell start.
 write_block() {
   local tmp="$HYPRLAND_LUA.tmp.$STAMP"
   {
     strip_block_to_stdout
     printf '\n%s\n' "$BEGIN_MARK"
-    printf 'require("parquet")\n'
+    printf 'pcall(require, "parquet")\n'
     printf 'pcall(function() _G.parquet.load_state(); _G.parquet.apply_rules() end)\n'
     printf '%s\n' "$END_MARK"
   } > "$tmp"
@@ -291,7 +298,7 @@ ensure_parquet() {
      && cmp -s "$REPO_DIR/layout/parquet.lua" "$LAYOUT_DEST" \
      && [[ -f $HYPRLAND_LUA ]] \
      && grep -qF -- "$BEGIN_MARK" "$HYPRLAND_LUA" \
-     && grep -qF 'require("parquet")' "$HYPRLAND_LUA"; then
+     && grep -qF 'pcall(require, "parquet")' "$HYPRLAND_LUA"; then
     return 0
   fi
 
