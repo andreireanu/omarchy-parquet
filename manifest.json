@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "andrei",
   "license": "MIT",
-  "description": "Draw your own tile layout and give one to each workspace. Windows land in the tiles you drew and keep that size; once the tiles are full, the last one carries on like a normal Hyprland layout. Toggle it per workspace from the bar.",
+  "description": "Draw your own tile layouts and give one to each workspace, from the Omarchy bar. A real Hyprland Lua layout - no daemon, no window-nudging.",
   "kinds": ["bar-widget", "overlay"],
   "keepLoaded": true,
   "entryPoints": {
