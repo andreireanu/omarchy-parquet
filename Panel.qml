@@ -18,6 +18,15 @@ Panel {
 
   property bool fillOpen: false
 
+  // The Hyprland half. `omarchy plugin add` clones this QML and nothing else,
+  // so until the user says yes to the card below there is no `lua:parquet` for
+  // a workspace rule to name. Service only READS ~/.config/hypr to know this;
+  // the button is the one thing in Parquet that runs the installer.
+  readonly property bool needsSetup: service ? service.needsSetup : false
+  readonly property bool needsUpdate: service ? service.needsUpdate : false
+  readonly property bool setupRunning: service ? service.setupRunning : false
+  readonly property string setupError: service ? service.setupError : ""
+
   readonly property int wsid: service ? service.activeWorkspaceId : 0
   readonly property string current: service ? service.currentLayout(wsid) : ""
   // The layout "Edit Layout" acts on: the active one, or — when Parquet is off
@@ -82,7 +91,105 @@ Panel {
           font.bold: true
         }
 
+        // ---- setup card --------------------------------------------------
+        //
+        // Shown only when the Hyprland half is missing or stale. It names every
+        // file the installer will write before offering the button, because
+        // those files are the user's compositor config and agreeing to that is
+        // the whole point of putting this in front of them.
+        BorderSurface {
+          Layout.fillWidth: true
+          visible: root.needsSetup || root.needsUpdate
+          implicitHeight: setupBody.implicitHeight + Style.space(20)
+          radius: Style.cornerRadius
+          color: Style.controlFill(false, false, root.fg, Color.accent)
+          borderSpec: Border.controlSpec("focus", root.fg, Color.accent)
+
+          ColumnLayout {
+            id: setupBody
+            x: Style.space(10)
+            y: Style.space(10)
+            width: parent.width - Style.space(20)
+            spacing: Style.space(6)
+
+            Text {
+              Layout.fillWidth: true
+              text: root.needsSetup
+                    ? "Finish setting up Parquet"
+                    : "Parquet's Hyprland layout is out of date"
+              color: root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              wrapMode: Text.WordWrap
+            }
+
+            Text {
+              Layout.fillWidth: true
+              textFormat: Text.PlainText
+              text: root.needsSetup
+                ? "Parquet tiles through a Hyprland Lua layout. Adding the plugin "
+                  + "installed this widget and nothing else, so there is nothing to "
+                  + "tile with yet.\n\nInstalling it will:\n"
+                  + "  •  write ~/.config/hypr/parquet.lua\n"
+                  + "  •  add one marked block to ~/.config/hypr/hyprland.lua, "
+                  + "after backing it up\n"
+                  + "  •  reload Hyprland\n\n"
+                  + "Nothing else on your system is touched, and the README's "
+                  + "Uninstalling section reverses all of it."
+                : "The copy in ~/.config/hypr is older than the one this plugin "
+                  + "ships. Updating rewrites the same two files, backing them up "
+                  + "first, and reloads Hyprland."
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+              lineHeight: 1.25
+            }
+
+            // install.sh refuses rather than guesses — a symlinked config, an
+            // unbalanced managed block, a hyprland.conf machine — and says why.
+            // Show its own words: they name the file and the fix.
+            Text {
+              Layout.fillWidth: true
+              visible: root.setupError.length > 0
+              textFormat: Text.PlainText
+              text: root.setupError
+              color: root.fg
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+
+            RowLayout {
+              Layout.fillWidth: true
+              spacing: Style.space(8)
+
+              Button {
+                text: root.setupRunning
+                      ? "Working…"
+                      : (root.needsSetup ? "Install the Hyprland layout"
+                                         : "Update the Hyprland layout")
+                bordered: true
+                selected: !root.setupRunning
+                enabled: !root.setupRunning && root.service !== null
+                onClicked: root.service.runSetup()
+              }
+              Item { Layout.fillWidth: true }
+              Text {
+                visible: root.needsUpdate && !root.setupRunning
+                text: "Parquet still works until you do."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+        }
+
         Flickable {
+          enabled: !root.needsSetup
+          opacity: root.needsSetup ? 0.4 : 1
           Layout.fillWidth: true
           implicitHeight: cardRow.implicitHeight
           contentWidth: cardRow.width
@@ -123,6 +230,8 @@ Panel {
         RowLayout {
           Layout.fillWidth: true
           spacing: Style.space(8)
+          enabled: !root.needsSetup
+          opacity: root.needsSetup ? 0.4 : 1
 
           Button {
             text: "Edit Layout"

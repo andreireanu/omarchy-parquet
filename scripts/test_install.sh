@@ -17,6 +17,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL="$REPO_DIR/scripts/install.sh"
 
+BASH="$(command -v bash)"
 SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/parquet-install-test.XXXXXX")"
 trap 'rm -rf "$SANDBOX"' EXIT
 
@@ -39,13 +40,29 @@ new_home() {
   rm -rf "$h"; mkdir -p "$h"
   echo "$h"
 }
-run_install() {   # run_install <HOME> [--uninstall]
+# PARQUET_SKIP_RELOAD keeps `hyprctl reload` out of a test run: install.sh now
+# pins its own PATH, so a real /usr/bin/hyprctl is reachable from here and
+# --ensure would otherwise poke the tester's live session.
+run_install() {   # run_install <HOME> [--uninstall|--ensure|--status]
   local h="$1"; shift
   HOME="$h" \
   XDG_CONFIG_HOME="$h/.config" \
   XDG_STATE_HOME="$h/.local/state" \
+  PARQUET_SKIP_RELOAD=1 \
   PATH="$STUB_BIN:$PATH" \
     bash "$INSTALL" "$@" >/dev/null 2>&1
+}
+# Same, but prints stderr instead of swallowing it, so a test can assert on the
+# refusal message. Always exits 0: these runs are *expected* to fail, and
+# `set -o pipefail` would otherwise report the refusal as the test's failure.
+run_install_err() {   # run_install_err <HOME> [args...]
+  local h="$1"; shift
+  HOME="$h" \
+  XDG_CONFIG_HOME="$h/.config" \
+  XDG_STATE_HOME="$h/.local/state" \
+  PARQUET_SKIP_RELOAD=1 \
+  PATH="$STUB_BIN:$PATH" \
+    bash "$INSTALL" "$@" 2>&1 >/dev/null || true
 }
 # drop trailing blank lines only (install.sh's awk pass can add/remove one)
 rtrim_blanks() { awk 'NF{last=NR} {l[NR]=$0} END{for(i=1;i<=last;i++) print l[i]}' "$1"; }
@@ -208,6 +225,7 @@ cp -r "$REPO_DIR" "$H/$PLUG"
 BEFORE_N="$(ls -1 "$H/$PLUG" | wc -l)"
 
 if env HOME="$H" XDG_CONFIG_HOME="$H/.config" XDG_STATE_HOME="$H/.local/state" \
+       PARQUET_SKIP_RELOAD=1 \
        bash "$H/$PLUG/scripts/install.sh" >/dev/null 2>&1; then pass
 else fail "install from inside the plugin folder exits 0"; fi
 
@@ -222,6 +240,7 @@ check "[[ -f '$H/$ST' ]]"                              "state.json is still seed
 
 # ...and uninstalling from inside must not delete the folder out from under itself
 env HOME="$H" XDG_CONFIG_HOME="$H/.config" XDG_STATE_HOME="$H/.local/state" \
+    PARQUET_SKIP_RELOAD=1 \
     bash "$H/$PLUG/scripts/install.sh" --uninstall >/dev/null 2>&1
 check "[[ -f '$H/$PLUG/manifest.json' ]]" "uninstall from inside leaves the folder to the plugin manager"
 check "! grep -qF 'parquet' '$H/$CFG/hyprland.lua'"    "…but still cleans hyprland.lua"
@@ -244,7 +263,8 @@ check "[[ \$(mark_count '$H/$CFG/hyprland.lua') -eq 0 ]]" "clone alone adds no m
 
 run_ensure() {
   HOME="$1" XDG_CONFIG_HOME="$1/.config" XDG_STATE_HOME="$1/.local/state" \
-  PATH="$STUB_BIN:$PATH" bash "$1/$PLUG/scripts/install.sh" --ensure >/dev/null 2>&1
+  PARQUET_SKIP_RELOAD=1 PATH="$STUB_BIN:$PATH" \
+    bash "$1/$PLUG/scripts/install.sh" --ensure >/dev/null 2>&1
 }
 run_ensure "$H"
 
@@ -299,6 +319,190 @@ mkdir -p "$H/$CFG"
 if run_install "$H"; then pass; else fail "install works when neither config exists"; fi
 check "[[ -f '$H/$CFG/hyprland.lua' ]]"     "hyprland.lua is created when there is no .conf to break"
 check "[[ \$(mark_count '$H/$CFG/hyprland.lua') -eq 1 ]]" "…with the managed block in it"
+
+# ----------------------------------------------------------------------
+echo
+echo "9. It refuses to rewrite a config it cannot safely delimit"
+# ----------------------------------------------------------------------
+# strip_file()'s awk starts skipping at a begin marker and only stops at the
+# matching end marker. A hand-edited hyprland.lua with an unbalanced marker
+# would therefore strip to EOF, and the rewrite would install that truncation
+# over the live config. These are the shapes that must stop it dead.
+USERCFG='monitor = eDP-1, preferred, auto, 1
+bind = SUPER, Q, killactive'
+BEGIN='-- >>> parquet (managed, safe to delete this whole block)'
+END='-- <<< parquet'
+
+marker_case() {   # marker_case <name> <file body>
+  local h; h="$(new_home "$1")"
+  mkdir -p "$h/$CFG"
+  printf '%s\n' "$2" > "$h/$CFG/hyprland.lua"
+  echo "$h"
+}
+survives() {   # survives <HOME> <what>
+  check "grep -qxF 'bind = SUPER, Q, killactive' '$1/$CFG/hyprland.lua'" \
+        "$2: the user's config is still there, whole"
+}
+
+# begin with no end — the case that used to eat everything after it
+H="$(marker_case unclosed "$USERCFG
+$BEGIN
+pcall(require, \"parquet\")")"
+if run_install "$H"; then fail "an unclosed marker is refused"; else pass; fi
+survives "$H" "unclosed marker"
+check "run_install_err '$H' | grep -qi 'never closed'" "unclosed marker: says which line is wrong"
+
+# end with no begin
+H="$(marker_case unopened "$USERCFG
+$END
+more = user, config")"
+if run_install "$H"; then fail "a stray end marker is refused"; else pass; fi
+survives "$H" "stray end marker"
+check "grep -qxF 'more = user, config' '$H/$CFG/hyprland.lua'" \
+      "stray end marker: lines after it survive too"
+
+# a begin nested inside a block
+H="$(marker_case nested "$USERCFG
+$BEGIN
+$BEGIN
+$END")"
+if run_install "$H"; then fail "a nested begin marker is refused"; else pass; fi
+survives "$H" "nested marker"
+
+# ...and --ensure and --uninstall have to be just as careful
+H="$(marker_case unclosed_ensure "$USERCFG
+$BEGIN")"
+if run_install "$H" --ensure; then fail "--ensure refuses an unbalanced config too"; else pass; fi
+survives "$H" "--ensure on an unbalanced config"
+if run_install "$H" --uninstall; then fail "--uninstall refuses an unbalanced config too"; else pass; fi
+survives "$H" "--uninstall on an unbalanced config"
+
+# A properly closed block is of course still fine, twice over.
+H="$(marker_case balanced "$USERCFG
+$BEGIN
+pcall(require, \"parquet\")
+$END
+tail = line")"
+if run_install "$H"; then pass; else fail "a balanced existing block installs normally"; fi
+check "[[ \$(mark_count '$H/$CFG/hyprland.lua') -eq 1 ]]" "balanced: still exactly one block"
+survives "$H" "balanced"
+check "grep -qxF 'tail = line' '$H/$CFG/hyprland.lua'" "balanced: content after the block survives"
+
+# ----------------------------------------------------------------------
+echo
+echo "10. It refuses symlinked and non-regular managed files"
+# ----------------------------------------------------------------------
+# The managed writes finish with a rename. Over a symlink that replaces the
+# LINK, silently detaching a dotfiles repo from the config it owns; the backup's
+# `cp -p` would follow the link and copy the wrong inode.
+H="$(new_home symlink_cfg)"
+mkdir -p "$H/$CFG" "$H/dotfiles"
+printf '%s\n' "$USERCFG" > "$H/dotfiles/hyprland.lua"
+ln -s "$H/dotfiles/hyprland.lua" "$H/$CFG/hyprland.lua"
+
+if run_install "$H"; then fail "a symlinked hyprland.lua is refused"; else pass; fi
+check "[[ -L '$H/$CFG/hyprland.lua' ]]"    "the symlink is still a symlink"
+check "! grep -qF 'parquet' '$H/dotfiles/hyprland.lua'" "the dotfiles file it points at is untouched"
+check "[[ ! -e '$H/$CFG/parquet.lua' ]]"   "no half-install behind the refusal"
+check "run_install_err '$H' | grep -qi 'symlink'" "the message says why"
+
+# Same for the layout file we own outright.
+H="$(new_home symlink_layout)"
+mkdir -p "$H/$CFG"
+printf '%s\n' "$USERCFG" > "$H/$CFG/hyprland.lua"
+ln -s /dev/null "$H/$CFG/parquet.lua"
+if run_install "$H"; then fail "a symlinked parquet.lua is refused"; else pass; fi
+check "! grep -qF 'parquet' '$H/$CFG/hyprland.lua'" "…before hyprland.lua was touched"
+
+# A directory where a managed file should be is not a file either.
+H="$(new_home dir_cfg)"
+mkdir -p "$H/$CFG/hyprland.lua"
+if run_install "$H"; then fail "a directory named hyprland.lua is refused"; else pass; fi
+
+# ----------------------------------------------------------------------
+echo
+echo "11. Bad environment in, refusal out"
+# ----------------------------------------------------------------------
+# Every path this script writes to is derived from XDG_CONFIG_HOME and
+# XDG_STATE_HOME, including its single `rm -rf`.
+bad_env() {   # bad_env <VAR=value>...
+  env "$@" PARQUET_SKIP_RELOAD=1 bash "$INSTALL" >/dev/null 2>&1
+}
+H="$(new_home badxdg)"
+if bad_env HOME=relative XDG_CONFIG_HOME="$H/.config" XDG_STATE_HOME="$H/.local/state"; then
+  fail "a relative HOME is refused"; else pass; fi
+if env HOME="$H" XDG_CONFIG_HOME="relative/path" XDG_STATE_HOME="$H/.local/state" \
+       bash "$INSTALL" >/dev/null 2>&1; then fail "a relative XDG_CONFIG_HOME is refused"; else pass; fi
+if env HOME="$H" XDG_CONFIG_HOME="/" XDG_STATE_HOME="$H/.local/state" \
+       bash "$INSTALL" >/dev/null 2>&1; then fail "XDG_CONFIG_HOME=/ is refused"; else pass; fi
+if env HOME="$H" XDG_CONFIG_HOME="$H/../etc" XDG_STATE_HOME="$H/.local/state" \
+       bash "$INSTALL" >/dev/null 2>&1; then fail "a traversing XDG_CONFIG_HOME is refused"; else pass; fi
+
+# The script pins its own PATH, so it must not need one from the caller.
+H="$(new_home nopath)"
+mkdir -p "$H/$CFG"
+printf '%s\n' "$USERCFG" > "$H/$CFG/hyprland.lua"
+if env -i HOME="$H" XDG_CONFIG_HOME="$H/.config" XDG_STATE_HOME="$H/.local/state" \
+          PARQUET_SKIP_RELOAD=1 PATH="" \
+          "$BASH" "$INSTALL" >/dev/null 2>&1; then pass
+else fail "installs with an empty inherited PATH (it pins its own)"; fi
+check "[[ -f '$H/$CFG/parquet.lua' ]]"  "…and really did install"
+
+# ----------------------------------------------------------------------
+echo
+echo "12. --status reads and reports, and writes nothing"
+# ----------------------------------------------------------------------
+# This is what a user runs to see what the bar widget sees. It must never be
+# the thing that installs.
+H="$(new_home status)"
+mkdir -p "$H/$CFG"
+printf '%s\n' "$USERCFG" > "$H/$CFG/hyprland.lua"
+BEFORE="$(cat "$H/$CFG/hyprland.lua")"
+
+if run_install "$H" --status; then fail "--status exits non-zero when setup is unfinished"; else pass; fi
+check "[[ ! -e '$H/$CFG/parquet.lua' ]]"            "--status installed nothing"
+check "[[ '$BEFORE' == \"\$(cat '$H/$CFG/hyprland.lua')\" ]]" "--status left hyprland.lua byte-identical"
+check "[[ ! -e '$H/$ST' ]]"                         "--status seeded no state.json"
+
+run_install "$H"
+if run_install "$H" --status; then pass; else fail "--status exits 0 once everything is installed"; fi
+
+# A stale layout file counts as needing setup — this is what the widget's
+# "update" prompt is for after `omarchy plugin update`.
+printf '%s\n' '-- not the shipped layout' > "$H/$CFG/parquet.lua"
+if run_install "$H" --status; then fail "--status notices an out-of-date layout"; else pass; fi
+
+# ----------------------------------------------------------------------
+echo
+echo "13. The widget's marker and the installer's agree"
+# ----------------------------------------------------------------------
+# Service.qml decides whether setup is finished by looking for Parquet.js's
+# BLOCK_MARK in hyprland.lua. If that ever drifts from BEGIN_MARK here, the
+# widget would offer to install over a machine that is already set up.
+JS_MARK="$(sed -n 's/^var BLOCK_MARK = "\(.*\)";$/\1/p' "$REPO_DIR/Parquet.js")"
+check "[[ -n '$JS_MARK' ]]"                  "Parquet.js exports a BLOCK_MARK"
+check "[[ '$BEGIN' == \"\$JS_MARK\"* ]]"     "BLOCK_MARK is a prefix of the installer's begin marker"
+check "grep -qF -- \"\$JS_MARK\" '$INSTALL'" "…and appears verbatim in install.sh"
+
+# ----------------------------------------------------------------------
+echo
+echo "14. Nothing in the plugin folder runs the installer by itself"
+# ----------------------------------------------------------------------
+# The marketplace review blocked exactly this: loading the bar widget must not
+# start an installer. The only reference to install.sh in the QML is the one
+# behind the setup card's button.
+check "! grep -q 'install.sh' '$REPO_DIR/BarWidget.qml'" \
+      "BarWidget.qml never names install.sh"
+check "[[ \$(cat '$REPO_DIR'/*.qml | grep -c '/scripts/install\.sh\"') -eq 1 ]]" \
+      "exactly one QML string in the whole plugin names the install script"
+check "grep -q '/scripts/install\.sh\"' '$REPO_DIR/Service.qml'" \
+      "…and it is the one Service.qml hands to setupProc"
+check "! grep -A6 'id: setupProc' '$REPO_DIR/Service.qml' | grep -qE 'running:[[:space:]]*true'" \
+      "the setup Process is not declared running — nothing starts it on load"
+check "grep -q 'function runSetup' '$REPO_DIR/Service.qml'" \
+      "…runSetup() does, and only the setup card's button calls it"
+check "grep -q 'onClicked: root.service.runSetup()' '$REPO_DIR/Panel.qml'" \
+      "that button is in Panel.qml's setup card"
 
 # ----------------------------------------------------------------------
 echo

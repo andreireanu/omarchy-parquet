@@ -229,6 +229,28 @@ var STATE_VERSION = 2;
 var FILL_MODES = ["dwindle", "master", "even"];
 var OFF = "";   // the "Off / native" pseudo-layout id used by the picker
 
+// ---- the Hyprland half -------------------------------------------------
+//
+// Parquet is half QML and half a Hyprland Lua layout, and `omarchy plugin add`
+// only clones the QML. Service.qml READS the two constants below out of
+// ~/.config/hypr to tell whether the Lua half is installed and current; putting
+// it there is scripts/install.sh's job, and the only thing that runs it is the
+// setup card's button.
+//
+// BLOCK_MARK is the head of the managed block install.sh writes into
+// hyprland.lua. Keep it in step with BEGIN_MARK there — scripts/test_install.sh
+// asserts they still match, because drift would have the widget offering to
+// install over a machine that is already set up.
+var BLOCK_MARK = "-- >>> parquet (managed";
+
+// layout/parquet.lua carries `-- parquet-layout-version: N`. Comparing the
+// shipped file's N against the installed copy's is how the widget notices an
+// `omarchy plugin update` left a stale Lua half behind.
+function layoutVersion(text) {
+  var m = /parquet-layout-version:[ \t]*([0-9]+)/.exec(String(text || ""));
+  return m ? m[1] : "";
+}
+
 function fillMode(v) { return FILL_MODES.indexOf(v) !== -1 ? v : "dwindle"; }
 
 function emptyState() {
@@ -549,6 +571,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     PRESETS: PRESETS, PRESET_NAMES: PRESET_NAMES, BRAND_TREE: BRAND_TREE,
     FALLBACK_TREE: FALLBACK_TREE, FILL_MODES: FILL_MODES, OFF: OFF,
+    BLOCK_MARK: BLOCK_MARK, layoutVersion: layoutVersion,
     isLeaf: isLeaf, clone: clone, presetTree: presetTree, clampRatio: clampRatio,
     snapRatio: snapRatio, nodeAt: nodeAt, leafRects: leafRects, splitNodes: splitNodes,
     zoneCount: zoneCount, splitLeaf: splitLeaf, mergeLeaf: mergeLeaf, setRatio: setRatio,

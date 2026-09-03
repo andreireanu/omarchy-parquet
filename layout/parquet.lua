@@ -1,5 +1,12 @@
 -- Parquet: fixed tile layouts for Hyprland, in the spirit of a parquet floor.
 --
+-- parquet-layout-version: 2
+--
+-- Bump that number whenever this file changes in a way an already-installed
+-- copy has to pick up. The bar widget reads the line out of both this file and
+-- ~/.config/hypr/parquet.lua and offers to re-run scripts/install.sh when they
+-- differ — it never runs anything on its own.
+--
 -- A layout is a tree of splits, exactly like Tiling Shell's editor produces:
 -- every left click there splits a tile, and ctx:split does the same thing here.
 -- Leaves are the zones. Window 1 goes in zone 1, window 2 in zone 2, and so on.

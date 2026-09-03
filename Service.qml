@@ -20,6 +20,17 @@ Item {
   readonly property string stateDir: stateHome + "/omarchy/parquet"
   readonly property string statePath: stateDir + "/state.json"
 
+  readonly property string configHome: {
+    var v = Quickshell.env("XDG_CONFIG_HOME")
+    return v && String(v).length ? String(v) : (homeDir + "/.config")
+  }
+  readonly property string hyprDir: configHome + "/hypr"
+
+  // Where this plugin was loaded from — BarWidget.qml passes it in. runSetup()
+  // is the only thing that uses it, and it is the only place in this plugin
+  // that runs a script.
+  property string pluginDir: ""
+
   // Normalized, always seeded. Bindings that call the accessors re-run on change.
   property var stateData: Parquet.normalizeState(null)
 
@@ -31,6 +42,56 @@ Item {
   property int _disableWs: -1
   property bool _dirEnsured: false
   property var _pendingCmds: []
+
+  // ---- setup (the Hyprland half) ---------------------------------------
+  //
+  // Parquet tiles through a Hyprland Lua layout, and `omarchy plugin add` only
+  // ever clones this QML. The layout has to be written to ~/.config/hypr, which
+  // is the user's own compositor config — so the widget READS the two files
+  // below to say whether that step is done, and installing is a click on the
+  // setup card in Panel.qml. Nothing here runs on load.
+  //
+  //   needsSetup   the Lua half is missing: the picker cannot tile yet
+  //   needsUpdate  it is there, but older than the copy this plugin ships
+  //                (what `omarchy plugin update` leaves behind)
+  property bool _blockPresent: false
+  property string _installedVersion: ""
+  property string _shippedVersion: ""
+  // The three probes below land asynchronously; report nothing until they have
+  // all answered, or the bar flashes "setup unfinished" on every shell start.
+  property int _probesDone: 0
+  readonly property bool setupKnown: _probesDone >= 3
+
+  readonly property bool needsSetup:
+    setupKnown && (!_blockPresent || _installedVersion === "")
+  readonly property bool needsUpdate:
+    setupKnown && !needsSetup && _shippedVersion !== ""
+    && _installedVersion !== _shippedVersion
+
+  property bool setupRunning: false
+  property string setupError: ""
+
+  function _probed() { root._probesDone = Math.min(3, root._probesDone + 1) }
+
+  // The ONE place this plugin runs its installer: from the setup card's button,
+  // after the user has read what it will do. `--ensure` is a no-op when the
+  // Hyprland half is already current, and refuses outright on a machine whose
+  // compositor config it cannot safely edit.
+  function runSetup() {
+    if (root.setupRunning || !root.pluginDir.length) return
+    root.setupError = ""
+    root.setupRunning = true
+    setupProc.command = ["/bin/bash", root.pluginDir + "/scripts/install.sh", "--ensure"]
+    setupProc.running = true
+  }
+
+  // Re-read the two files after a setup run so the card goes away on its own.
+  function recheckSetup() {
+    root._probesDone = 0
+    hyprlandLuaFile.reload()
+    installedLayoutFile.reload()
+    shippedLayoutFile.reload()
+  }
 
   // ---- reads -----------------------------------------------------------
 
@@ -252,6 +313,59 @@ Item {
           }
         } catch (e) {}
       }
+    }
+  }
+
+  // Read-only probes. printErrors stays off because "not installed yet" is a
+  // perfectly normal state for all three, not something to log about.
+  FileView {
+    id: hyprlandLuaFile
+    path: root.hyprDir + "/hyprland.lua"
+    watchChanges: true
+    printErrors: false
+    onLoaded: {
+      root._blockPresent = String(text()).indexOf(Parquet.BLOCK_MARK) !== -1
+      root._probed()
+    }
+    onLoadFailed: { root._blockPresent = false; root._probed() }
+    onFileChanged: reload()
+  }
+
+  FileView {
+    id: installedLayoutFile
+    path: root.hyprDir + "/parquet.lua"
+    watchChanges: true
+    printErrors: false
+    onLoaded: { root._installedVersion = Parquet.layoutVersion(text()); root._probed() }
+    onLoadFailed: { root._installedVersion = ""; root._probed() }
+    onFileChanged: reload()
+  }
+
+  FileView {
+    id: shippedLayoutFile
+    path: root.pluginDir.length ? (root.pluginDir + "/layout/parquet.lua") : ""
+    printErrors: false
+    onLoaded: { root._shippedVersion = Parquet.layoutVersion(text()); root._probed() }
+    onLoadFailed: { root._shippedVersion = ""; root._probed() }
+  }
+
+  Process {
+    id: setupProc
+    // Deliberately not started here — runSetup() is the only thing that sets
+    // this Process going, and only the setup card's button calls it.
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.setupError = String(text || "").trim()
+    }
+    onExited: function(code) {
+      root.setupRunning = false
+      // install.sh refuses loudly rather than guessing (a symlinked config, an
+      // unbalanced managed block, a hyprland.conf machine). Keep its own words:
+      // they name the file and what to do about it.
+      if (code !== 0 && !root.setupError.length)
+        root.setupError = "Setup failed (exit " + code + "). "
+                        + "Run scripts/install.sh in a terminal to see why."
+      root.recheckSetup()
     }
   }
 

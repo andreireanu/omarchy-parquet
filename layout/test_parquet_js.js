@@ -470,6 +470,32 @@ console.log("\n9. restoreNativeLua emits valid Lua that names the workspace");
   }
 }
 
+// ---- the Hyprland-half probes -------------------------------------------
+console.log("\n10. Service.qml's setup probes read what install.sh writes");
+{
+  const luaSrc = fs.readFileSync(path.join(__dirname, "parquet.lua"), "utf8");
+  const shSrc  = fs.readFileSync(path.join(__dirname, "..", "scripts", "install.sh"), "utf8");
+
+  // Service.qml decides "setup finished?" by looking for BLOCK_MARK in the
+  // user's hyprland.lua. If it ever drifts from install.sh's BEGIN_MARK, the
+  // widget offers to install over a machine that is already set up.
+  ok(BLOCK_MARK.length > 10, "BLOCK_MARK is specific enough to not match by accident");
+  ok(shSrc.indexOf('BEGIN_MARK="' + BLOCK_MARK) !== -1,
+     "BLOCK_MARK is a prefix of install.sh's BEGIN_MARK");
+
+  // ...and "up to date?" by comparing the version line in the shipped
+  // layout/parquet.lua against the installed copy's.
+  ok(layoutVersion(luaSrc) !== "", "layout/parquet.lua carries a version line");
+  ok(/^[0-9]+$/.test(layoutVersion(luaSrc)), "…and it is a plain number");
+  ok(layoutVersion("-- parquet-layout-version:   7\nrest") === "7", "reads a padded version");
+  ok(layoutVersion("no version here") === "", "a file without the line reads as unknown");
+  ok(layoutVersion(null) === "" && layoutVersion(undefined) === "",
+     "a failed read reads as unknown, not as a crash");
+  // An unknown version must never look like a mismatch on its own: Service.qml
+  // only prompts to update when both sides are known and differ.
+  ok(layoutVersion("") === "", "an empty file reads as unknown");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail === 0) { console.log("\nALL CHECKS PASSED"); process.exit(0); }
 else { console.log("\nTHERE ARE FAILURES"); process.exit(1); }

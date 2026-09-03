@@ -1,7 +1,6 @@
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -16,12 +15,17 @@ import qs.Ui
 //   Right click  →  layout picker popup (Panel.qml)
 //   The chip icon is a live thumbnail of the focused workspace's layout,
 //   hollow when Parquet is off.
+//
+// Until the Hyprland half is installed there is nothing to toggle, so both
+// clicks open the panel instead and it leads with the setup card. See
+// Service.qml — the widget only ever READS ~/.config/hypr to know that.
 BarWidget {
   id: root
   moduleName: "io.github.andreireanu.parquet"
 
   readonly property int wsid: service.activeWorkspaceId
   readonly property bool isOn: wsid > 0 && service.enabledFor(wsid)
+  readonly property bool needsSetup: service.needsSetup
 
   // The panel's coordinator (KeyboardPanel) calls back through `owner`, which
   // is this widget — so expose the same open/close/toggle surface djrcx does.
@@ -36,6 +40,7 @@ BarWidget {
   // Left click: flip Parquet for this workspace. On -> off restores the
   // workspace's previous native layout; off -> on re-uses its remembered layout.
   function toggleParquet() {
+    if (root.needsSetup) { root.open(); return }   // nothing to toggle yet
     if (root.wsid <= 0) return
     if (root.isOn) service.disableWorkspace(root.wsid)
     else service.enableWorkspace(root.wsid)
@@ -75,23 +80,15 @@ BarWidget {
   onSettingsChanged: injectPanel()
   Component.onCompleted: injectPanel()
 
-  Service { id: service }
-
-  // Parquet is half QML, half a Hyprland Lua layout, and `omarchy plugin add`
-  // only ever clones the QML. Without parquet.lua and the managed hyprland.lua
-  // block there is no `lua:parquet` for a workspace rule to name, so the widget
-  // would toggle happily and tile nothing. Putting that in place here is what
-  // makes `omarchy plugin add <url> --enable` the whole install.
-  //
-  // `--ensure` is a no-op — and reloads nothing — once everything is current,
-  // so this costs one cmp and two greps per shell start.
+  // Where this plugin was loaded from. Service reads layout/parquet.lua out of
+  // here to compare versions, and the setup card's button runs the install
+  // script from here — nothing else in this file touches it.
   readonly property string pluginDir:
     Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "").replace(/\/$/, "")
 
-  Process {
-    id: bootstrap
-    command: ["bash", root.pluginDir + "/scripts/install.sh", "--ensure"]
-    running: true
+  Service {
+    id: service
+    pluginDir: root.pluginDir
   }
 
   Connections {
@@ -118,15 +115,17 @@ BarWidget {
     bar: root.bar
     text: ""
     hasVisualContent: true
-    dimmed: !root.isOn
+    dimmed: !root.isOn || root.needsSetup
     horizontalMargin: 7
     fixedWidth: root.vertical ? -1 : Math.round(root.barSize * 1.15)
-    tooltipText: root.wsid <= 0
-      ? "Parquet"
-      : ((root.isOn
-          ? "Parquet on — workspace " + root.wsid + " · " + service.currentLayout(root.wsid)
-          : "Parquet off — workspace " + root.wsid)
-         + "\nLeft: turn " + (root.isOn ? "off" : "on") + "   Right: pick a layout")
+    tooltipText: root.needsSetup
+      ? "Parquet — setup unfinished\nClick to see what it needs to install"
+      : (root.wsid <= 0
+         ? "Parquet"
+         : ((root.isOn
+             ? "Parquet on — workspace " + root.wsid + " · " + service.currentLayout(root.wsid)
+             : "Parquet off — workspace " + root.wsid)
+            + "\nLeft: turn " + (root.isOn ? "off" : "on") + "   Right: pick a layout"))
     onPressed: function(b) {
       if (b === Qt.RightButton) root.toggle()   // the picker popup
       else root.toggleParquet()
