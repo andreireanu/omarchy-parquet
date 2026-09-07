@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "author": "andrei",
   "license": "MIT",
-  "description": "Draw your own tile layouts and give one to each workspace, from the Omarchy bar. A real Hyprland Lua layout - no daemon, no window-nudging.",
+  "description": "A floor plan for your screen. Draw tile layouts once, assign one to each workspace - open a window and it knows its place. Split zones in the fullscreen editor, drag dividers, pick overflow behaviour. Each workspace holds its own layout and survives reloads.",
   "kinds": ["bar-widget", "overlay"],
   "keepLoaded": true,
   "entryPoints": {
