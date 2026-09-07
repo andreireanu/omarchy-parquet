@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.andreireanu.parquet",
   "name": "Parquet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "andrei",
   "license": "MIT",
   "description": "A floor plan for your screen. Draw tile layouts once, assign one to each workspace - open a window and it knows its place. Split zones in the fullscreen editor, drag dividers, pick overflow behaviour. Each workspace holds its own layout and survives reloads.",
@@ -21,3 +21,4 @@
     "defaultSection": "right"
   }
 }
+`
